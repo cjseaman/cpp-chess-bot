@@ -1,31 +1,12 @@
 #include "include/chess.hpp"
 
-using std::cout;
-using std::endl;
-
 int main() {
     cout << "Testing" << endl;
-    U64 fourth_rank_occupied = 0x00000000FF000000ULL;
-    U64 e_file_occupied = 0x0808080808080808ULL;
-    int count = 0;
-    /*
-    U64 board = 1ULL << 27;
-    print_bitboard(board);
-    Rook test(board, false, LIGHT);
-    print_bitboard(test.rook_vision(fourth_rank_occupied));
+    string starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    string mate_in_1 = "4r2k/1p3rbp/2p1N1p1/p3n3/P2NB1nq/1P6/4R1P1/B1Q2RK1 b - - 4 32";
+    string mate_in_3 = "7r/4r1k1/6P1/p2R3K/2P2P1P/1Q4q1/1P6/3R4 w - - 1 4";
+    GameState state = parse_full_fen(mate_in_3);
 
-    */
-    for (int i = 0; i < 64; i++) {
-        cout << endl;
-        Rook test_rook(i, false, LIGHT);
-        Bishop test_bishop(i, LIGHT);
-        Queen test_queen(i, LIGHT);
-        print_bitboard(test_rook.rook_vision(FILE_A));
-        print_bitboard(test_bishop.bishop_vision(FILE_A));
-        print_bitboard(test_queen.queen_vision(FILE_A));
-        cout << ++count << endl;
-    }
-
-
+    cout << state;
     cout << endl;
 }
