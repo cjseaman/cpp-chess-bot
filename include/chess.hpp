@@ -10,6 +10,30 @@
 
 using namespace std;
 
+extern U64 piece_vision[7][64];
+extern U64 piece_bnb[7][64];
+extern U64 behind[64][64];
+
+void generate_piece_vision_maps();
+int bit_scan_forward(U64 bb);
+U64 squares_behind(int p1, int p2);
+void generate_behind();
+U64 blocked_piece_vision(int p, U64 occupied, SquareOccupant piece_type);
+int count_ones(U64 b);
+void generate_blocker_permutations(uint64_t mask, vector<U64>& blocker_permutations);
+int posi(U64 position);
+void check_piece_vision();
+void print_bitboard(U64 board);
+U64 east_one(U64 board);
+U64 west_one(U64 board);
+U64 north_one(U64 board);
+U64 south_one(U64 board);
+U64 draw_king_vision(U64 start_position);
+U64 draw_rook_rays(U64 start_position);
+U64 get_rook_attacks(U64 start_position, U64 occupancy);
+U64 draw_knight_vision(U64 start_position);
+U64 draw_bishop_rays(U64 start_position);
+
 enum Color {
     LIGHT = 1, DARK = -1
 };
@@ -19,107 +43,53 @@ enum SquareOccupant {
 };
 
 enum CardinalDirection {
-    NORTH, NORTHEAST, EAST, SOUTHEAST, SOUTH, SOUTHWEST, WEST, NORTHWEST
+    NORTH, NORTHEAST, EAST, SOUTHEAST, SOUTH, SOUTHWEST, WEST, NORTHWEST, ALL
 };
 
-static uint64_t FILE_A = 0x0101010101010101ULL;
-static uint64_t FILE_H = 0x8080808080808080ULL;
-static uint64_t RANK_2 = 0x000000000000FF00ULL;
-static uint64_t RANK_7 = 0x00FF000000000000ULL;
-
-static int mailbox[120] = {
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1,  0,  1,  2,  3,  4,  5,  6,  7, -1,
-    -1,  8,  9, 10, 11, 12, 13, 14, 15, -1,
-    -1, 16, 17, 18, 19, 20, 21, 22, 23, -1,
-    -1, 24, 25, 26, 27, 28, 29, 30, 31, -1,
-    -1, 32, 33, 34, 35, 36, 37, 38, 39, -1,
-    -1, 40, 41, 42, 43, 44, 45, 46, 47, -1,
-    -1, 48, 49, 50, 51, 52, 53, 54, 55, -1,
-    -1, 56, 57, 58, 59, 60, 61, 62, 63, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+enum MoveType {
+    PUSH, DOUBLE_PUSH, ENPASSANT, CAPTURE, QUIET, CASTLE, PROMOTION, CAPTURE_AND_PROMOTION
 };
 
-static int mailbox64[64] = {
-    21, 22, 23, 24, 25, 26, 27, 28,
-    31, 32, 33, 34, 35, 36, 37, 38,
-    41, 42, 43, 44, 45, 46, 47, 48,
-    51, 52, 53, 54, 55, 56, 57, 58,
-    61, 62, 63, 64, 65, 66, 67, 68,
-    71, 72, 73, 74, 75, 76, 77, 78,
-    81, 82, 83, 84, 85, 86, 87, 88,
-    91, 92, 93, 94, 95, 96, 97, 98
+struct Init {
+    Init() {
+        generate_piece_vision_maps();
+        generate_behind();
+    }
 };
 
-class Piece {
-    public:
-        U64 position;
-        Color piece_color;
-        U64 trace_ray(U64 start_position, uint8_t ray_length, CardinalDirection ray_direction);
+struct Move {
+    int from;
+    int to;
+    SquareOccupant piece;
+    int captured;
+    int promotion;
+    MoveType type;
 };
 
-class King : Piece {
-    public: 
-        bool can_castle;
-        U64 king_vision();
-        King(U64 init_position, bool init_can_castle, Color init_color);
-};
+static U64 FILE_A = 0x0101010101010101ULL;
+static U64 FILE_B = 0x0202020202020202ULL;
+static U64 FILE_G = 0x4040404040404040ULL;
+static U64 FILE_H = 0x8080808080808080ULL;
+static U64 RANK_1 = 0x00000000000000FFULL;
+static U64 RANK_2 = 0x000000000000FF00ULL;
+static U64 RANK_7 = 0x00FF000000000000ULL;
+static U64 RANK_8 = 0xFF00000000000000ULL;
 
-class Pawn : Piece {
-    public:
-        bool en_passant;
-        U64 p_attack_vision();
-        U64 p_move_vision();
-        Pawn(U64 init_position, bool init_en_passant, Color init_color);
-};
-
-class Rook : Piece {
-    public:
-        U64 rook_vision();
-        bool can_castle;
-    Rook(U64 init_position, bool init_can_castle, Color init_color);
-};
-
-class Knight : Piece {
-    public:
-        U64 knight_vision();
-};
-
-class Bishop : Piece {
-    public:
-        U64 bishop_vision();
-};
-
-class Queen : Bishop, Rook {
-    public:
-        U64 queen_vision();
-};
-
-class Board {
-    public:
-        SquareOccupant square_matrix[8][8];
-        void set_position(string fen_starting_position);
+struct Piece {
+    SquareOccupant type;
+    int square_number;
+    Color color;
 };
 
 class Game {
     public:
-        Board board;
-        vector<Piece> pieces;
+        Piece board[64];
+        vector<Piece> light_pieces;
+        vector<Piece> dark_pieces;
+    Game(string start_position_fen);
 };
 
 std::vector<U64> position_in_each_square();
-
-void print_bitboard(U64 board);
-
-U64 east_one(U64 board);
-
-U64 west_one(U64 board);
-
-U64 north_one(U64 board);
-
-U64 south_one(U64 board);
 
 #endif
 

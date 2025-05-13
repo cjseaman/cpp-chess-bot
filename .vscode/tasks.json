@@ -9,6 +9,7 @@
                 "-g",
                 "${workspaceFolder}\\chess_main.cpp",
                 "${workspaceFolder}\\src\\chess.cpp",
+                "${workspaceFolder}\\src\\tests.cpp",
                 "${workspaceFolder}\\include\\chess.hpp",
                 "-o",
                 "${fileDirname}\\${fileBasenameNoExtension}.exe"
