@@ -110,6 +110,7 @@ vector<Move> get_all_legal_moves(GameState& state);
 Occupancy get_occupancy(vector<Piece>& pieces);
 
 std::ostream& operator<<(std::ostream& os, const GameState& state);
+std::ostream& operator<<(std::ostream& os, const Move& move);
 
 static U64 FILE_A = 0x0101010101010101ULL;
 static U64 FILE_B = 0x0202020202020202ULL;

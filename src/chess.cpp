@@ -424,8 +424,55 @@ void print_bitboard(U64 board) {
     cout << endl;
 } 
 
+string piece_type_to_string(PieceType piece_type) {
+    switch(piece_type) {
+        case PAWN: 
+            return "Pawn";
+        case ROOK:
+            return "Rook";
+        case KNIGHT:
+            return "Knight";
+        case BISHOP:
+            return "Bishop";
+        case KING:
+            return "King";
+        case QUEEN:
+            return "Queen";
+    }
+    return "EMPTY";
+}
+
+string move_type_to_string(MoveType move_type) {
+    switch(move_type) {
+        case PUSH: 
+            return "Push";
+        case DOUBLE_PUSH:
+            return "Double Push";
+        case ENPASSANT:
+            return "En Passant";
+        case CAPTURE:
+            return "Capture";
+        case QUIET:
+            return "Quiet";
+        case CASTLE:
+            return "Castle";
+        case PROMOTION:
+            return "Promotion";
+        case CAPTURE_AND_PROMOTION:
+            return "Capture and Promotion";
+    }
+    return "None";
+}
+
 std::ostream& operator<<(std::ostream& os, const Piece& piece) {
     os << (piece.color == 1 ? "White " : "Black ") << piece_to_char(piece) << " on square " << square_to_algebraic(piece.square_number) << '\n';
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Move& move) {
+    os << piece_type_to_string(move.piece) << " from " << square_to_algebraic(move.from) << " to " << square_to_algebraic(move.to) << '\n';
+    os << "Move type: " << move_type_to_string(move.type) << " | " << "Capturing " << piece_type_to_string(move.captured) << '\n';
+    // TODO finish this.
     return os;
 }
 
@@ -486,6 +533,7 @@ vector<Move> get_all_legal_moves(GameState& state) {
     vector<Move> legal_moves;
     Occupancy occupancy = get_occupancy(state.pieces);
     for(Piece piece : state.pieces) {
+
         if(piece.type == PAWN) {
             U64 move_set = get_pawn_move_vision(piece.square_number, piece.color, occupancy);
             U64 attack_set = get_pawn_attack_vision(piece.square_number, piece.color, occupancy, state.en_passant_square);
@@ -512,7 +560,6 @@ vector<Move> get_all_legal_moves(GameState& state) {
             if((piece.square_number > 47 && piece.color == BLACK) || (piece.square_number < 16 && piece.color == WHITE)) {
                 if(move_set) {
                     vector<int> pushes = get_set_bit_positions(move_set);
-                    if(pushes.size() > 1) {}
                     for(int push : pushes) {
                         if(abs(piece.square_number - push) == 16) {
                             legal_moves.push_back({piece.square_number, push, piece.type, EMPTY, EMPTY, DOUBLE_PUSH});
@@ -523,8 +570,19 @@ vector<Move> get_all_legal_moves(GameState& state) {
                 }
             }
             // Captures, including en passant
-            if(attack_set)
+            if(attack_set) {
+                vector<int> attacks = get_set_bit_positions(attack_set);
+                for(int attack : attacks) {
+                    PieceType attacked = lookup_piece_at_square(state.pieces, attack);
+                    legal_moves.push_back({piece.square_number, attack, piece.type, attacked, EMPTY, CAPTURE});
+                }
+            }
         }
+        // TODO: Castle short
+
+        // TODO: Castle long
+
+        // TODO: All other moves
     }
 }
  
