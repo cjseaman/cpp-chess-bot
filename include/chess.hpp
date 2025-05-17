@@ -21,7 +21,11 @@ extern U64 piece_bnb[7][64];
 extern U64 behind[64][64];
 
 enum Color {
-    WHITE = 1, BLACK = -1
+    WHITE = 1, BLACK = -1, NONE = 0
+};
+
+enum ColorOccupancyIndexes {
+    B_OCC, E_OCC, W_OCC
 };
 
 enum PieceType {
@@ -64,14 +68,13 @@ struct Piece {
 };
 
 struct Occupancy {
-    U64 white = 0;
-    U64 black = 0;
+    U64 colors[3] = {};
     U64 all = 0;
-    U64 not_all = 0;
 };
 
 struct GameState {
     vector<Piece> pieces;
+    Occupancy occupancy;
     Color side_to_move;
     bool white_can_castle_kingside;
     bool white_can_castle_queenside;
@@ -85,7 +88,7 @@ struct GameState {
 
 int bit_scan_forward(U64 bb);
 U64 squares_behind(int p1, int p2);
-U64 get_piece_vision(int p, U64 occupied, PieceType piece_type);
+U64 get_piece_attack_vision(int p, U64 occupied, PieceType piece_type);
 U64 get_pawn_move_vision(int square_number, Color color);
 U64 get_pawn_attack_vision(int square_number, Color color);
 int count_ones(U64 b);
@@ -106,8 +109,14 @@ void print_board_array(Piece board[64]);
 GameState parse_full_fen(string fen);
 void print_game_state(GameState state);
 string square_to_algebraic(int square);
-vector<Move> get_all_legal_moves(GameState& state);
+vector<Move> get_all_pseudo_legal_moves(GameState& state);
 Occupancy get_occupancy(vector<Piece>& pieces);
+int algebraic_to_square(const string& alg);
+void make_move(GameState& state, Move& move);
+void move_piece(GameState& state, int pi, int from, int to);
+int prune_illegal_moves(GameState& state, vector<Move>& legal_moves);
+bool is_illegal_move(GameState& state, Move& last_move);
+U64 get_enemy_attack_vision(GameState& state, Color color);
 
 std::ostream& operator<<(std::ostream& os, const GameState& state);
 std::ostream& operator<<(std::ostream& os, const Move& move);
@@ -120,6 +129,10 @@ static U64 RANK_1 = 0x00000000000000FFULL;
 static U64 RANK_2 = 0x000000000000FF00ULL;
 static U64 RANK_7 = 0x00FF000000000000ULL;
 static U64 RANK_8 = 0xFF00000000000000ULL;
+static U64 WK_GAP = 0x0000000000000060ULL;
+static U64 WQ_GAP = 0x000000000000000EULL;
+static U64 BK_GAP = 0x6000000000000000ULL;
+static U64 BQ_GAP = 0x0E00000000000000ULL;
 
 #endif
 
