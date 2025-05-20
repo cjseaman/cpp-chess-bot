@@ -4,7 +4,7 @@
 
 U64 piece_vision[7][64];
 U64 piece_bnb[7][64];
-U64 behind[64][64];
+U64 not_behind[64][64];
 
 U64 bishop_attacks[64][512];
 U64 rook_attacks[64][4096];
@@ -85,10 +85,10 @@ U64 squares_behind(int p1, int p2) {
     return 0ULL;
 }
 
-void generate_behind() {
+void generate_not_behind() {
     for(int i = 0; i < 64; i++) {
         for(int j = 0; j < 64; j++) {
-            behind[i][j] = squares_behind(i, j);
+            not_behind[i][j] = ~squares_behind(i, j);
         }
     }
 }
@@ -232,7 +232,9 @@ U64 get_piece_attack_vision(int p, U64 occupied, PieceType piece_type) {
     if(piece_type == ROOK || piece_type == BISHOP || piece_type == QUEEN) {
         for(U64 b = occupied & piece_vision[piece_type][p]; b != 0; b = b & (b - 1)) {
             int sq = bit_scan_forward(b);
-            vision = vision & ~behind[p][sq];
+            U64 s_not_behind = not_behind[p][sq];
+            vision = vision & not_behind[p][sq];
+            // Vision includes b?
         }
     }
     return vision;
@@ -443,14 +445,12 @@ std::ostream& operator<<(std::ostream& os, const Move& move) {
     promotion_message += " | ";
     os << piece_type_to_string(move.piece) << " from " << square_to_algebraic(move.from) << " to " << square_to_algebraic(move.to) << '\n';
     os << "Move type: " << move_type_to_string(move.type) << (move.type == PROMOTION? promotion_message : " | ") << "Capturing " << piece_type_to_string(move.captured) << '\n';
-    // TODO finish this.
     return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const GameState& state) {
     char board[64] = {};
     for (Piece piece : state.pieces) {
-        os << piece;
         board[piece.square_number] = piece_to_char(piece);
     }
     for (int row = 7; row >= 0; --row) {
@@ -468,6 +468,17 @@ std::ostream& operator<<(std::ostream& os, const GameState& state) {
     os << "Black can castle?\nKingside: " << (state.black_can_castle_kingside? "Yes" : "No") << " | Queenside: " << (state.black_can_castle_queenside? "Yes" : "No") << '\n';
     os << "White can castle?\nKingside: " << (state.white_can_castle_kingside? "Yes" : "No") << " | Queenside: " << (state.white_can_castle_queenside? "Yes" : "No") << '\n';
     os << "En passant square: " << square_to_algebraic(state.en_passant_square) << " | Fullmove clock: " << state.fullmove_number << " | Halfmove clock: " << state.halfmove_clock << '\n';
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const MoveCounter& counter) {
+    os << "\n";
+    os << counter.move_count << " Moves\n";
+    os << counter.capture_count << " Captures\n";
+    os << counter.en_passant_count << " En Passants\n";
+    os << counter.castle_count << " Castles\n";
+    os << counter.promotion_count << " Promotions\n";
+    os << counter.check_count << " Checks\n";
     return os;
 }
 
@@ -507,7 +518,7 @@ vector<Move> get_pawn_moves(GameState& state, Piece& piece) {
     int attack_left = piece.square_number + 7 * piece.color;
     bool pawn_can_push = state.occupancy.colors[E_OCC] & (1ULL << one_ahead_pawn);
 
-    U64 opposing_occupancy = state.occupancy.colors[-piece.color + 1];
+    U64 opposing_occupancy = state.occupancy.colors[(-piece.color) + 1];
     bool pawn_can_attack_right = opposing_occupancy & (1ULL << attack_right) || attack_right == state.en_passant_square;
     bool pawn_can_attack_left = opposing_occupancy & (1ULL << attack_left) || attack_left == state.en_passant_square;
 
@@ -652,9 +663,11 @@ void move_piece(GameState& state, int pi, int from, int to) {
     color_occupancy = color_occupancy | (1ULL << to);
     state.occupancy.all = state.occupancy.colors[W_OCC] | state.occupancy.colors[B_OCC];
     state.occupancy.colors[E_OCC] = ~state.occupancy.all;
+    state.side_to_move = Color(-state.side_to_move);
+    state.en_passant_square = -1;
 }
 
-void make_move(GameState& state, Move& move) {
+void make_move(GameState& state, const Move& move) {
     int mpi = -1;
     int cpi = -1;
     int ki = -1;
@@ -664,7 +677,7 @@ void make_move(GameState& state, Move& move) {
         if(piece.square_number == move.from) {
             mpi = piece_index;
         } 
-        if(piece.square_number == move.to || (move.type == ENPASSANT && piece.square_number == (move.to - 8 * piece.color))) {
+        if(piece.square_number == move.to || (move.type == ENPASSANT && piece.square_number == (move.to + 8 * piece.color))) {
             cpi = piece_index;
         }
         if(piece.type == KING && piece.color == state.side_to_move) {
@@ -678,9 +691,9 @@ void make_move(GameState& state, Move& move) {
 
     switch (move.type) {
         case CAPTURE_AND_PROMOTION: {
-            state.pieces.erase(state.pieces.begin() + cpi);
             move_piece(state, mpi, move.from, move.to);
             state.pieces[mpi].type = move.promotion;
+            state.pieces.erase(state.pieces.begin() + cpi);
             return;
         }
         case PROMOTION: {
@@ -689,18 +702,20 @@ void make_move(GameState& state, Move& move) {
             return;
         }
         case ENPASSANT: {
-            state.pieces.erase(state.pieces.begin() + cpi);
+            cout << state;
             move_piece(state, mpi, move.from, move.to);
             // Remove occupancy for captured pawn
-            U64& color_occupancy = state.occupancy.colors[state.pieces[cpi].color + 1];
-            color_occupancy = color_occupancy & ~(1ULL << move.to - 8 * state.pieces[cpi].color);
+            U64 color_occupancy = state.occupancy.colors[state.pieces[cpi].color + 1];
+            color_occupancy = color_occupancy & ~(1ULL << move.to + 8 * state.pieces[cpi].color);
+            state.occupancy.colors[state.pieces[cpi].color + 1] = color_occupancy;
             state.occupancy.all = state.occupancy.colors[W_OCC] | state.occupancy.colors[B_OCC];
             state.occupancy.colors[E_OCC] = ~state.occupancy.all;
+            state.pieces.erase(state.pieces.begin() + cpi);
             return;
         }
         case CAPTURE: {
-            state.pieces.erase(state.pieces.begin() + cpi);
             move_piece(state, mpi, move.from, move.to);
+            state.pieces.erase(state.pieces.begin() + cpi);
             return;
         }
         case CASTLE: {
@@ -727,8 +742,8 @@ void make_move(GameState& state, Move& move) {
             return;
         }
         case DOUBLE_PUSH: {
-            state.en_passant_square = move.to - 8 * state.pieces[mpi].color;
             move_piece(state, mpi, move.from, move.to);
+            state.en_passant_square = move.to - 8 * state.pieces[mpi].color;
             return;
         }
         
@@ -736,10 +751,6 @@ void make_move(GameState& state, Move& move) {
 
     // All quiet moves and single pushes just set the new location
     move_piece(state, mpi, move.from, move.to);
-}
-
-void unmake_move(GameState& state, Move& move) {
-    //TODO
 }
 
 U64 get_enemy_attack_vision(GameState& state, Color color) {
@@ -752,8 +763,23 @@ U64 get_enemy_attack_vision(GameState& state, Color color) {
     return enemy_attack_vision;
 }
 
-bool is_illegal_move(GameState& state, Move& last_move) {
-    Color color = state.side_to_move;
+bool is_king_in_check(GameState& state, Color color, int king_square = -1, U64 enemy_attack_vision = 0xFFFFFFFFFFFFFFFFULL) {
+    if(enemy_attack_vision == 0xFFFFFFFFFFFFFFFFULL) {
+        enemy_attack_vision = get_enemy_attack_vision(state, color);
+        for(Piece& piece : state.pieces) {
+            if(piece.type == KING && piece.color == color) {
+                king_square = piece.square_number;
+            }
+            if(piece.type == PAWN && piece.color == -color) {
+                enemy_attack_vision = enemy_attack_vision | get_pawn_attack_vision(piece.square_number, piece.color);
+            }
+        }
+    }
+    return ((1ULL << king_square) & enemy_attack_vision);
+} 
+
+bool is_illegal_move(GameState& state, const Move& last_move) {
+    Color color = Color(-state.side_to_move);
     U64 enemy_attack_vision = get_enemy_attack_vision(state, color);
     int king_square = -1;
     for(Piece& piece : state.pieces) {
@@ -764,7 +790,8 @@ bool is_illegal_move(GameState& state, Move& last_move) {
             enemy_attack_vision = enemy_attack_vision | get_pawn_attack_vision(piece.square_number, piece.color);
         }
     }
-    bool illegal_move = ((1ULL << king_square) & enemy_attack_vision);
+
+    bool illegal_move = is_king_in_check(state, color, -1, enemy_attack_vision);
 
     if(last_move.type == CASTLE && !illegal_move) {
         // Long white
@@ -788,20 +815,71 @@ bool is_illegal_move(GameState& state, Move& last_move) {
 }
 
 int prune_illegal_moves(GameState& state, vector<Move>& legal_moves) {
-    vector<int> illegal;
     GameState saved_state = state;
-    int ii;
-    for(Move move : legal_moves) {
+    int i = 0;
+    for (auto it = legal_moves.begin(); it != legal_moves.end();) {
+        const Move& move = *it;
         make_move(state, move);
-        if(is_illegal_move(state, move)) {
-            illegal.push_back(ii);
-        }
-        ii++;
+        bool is_illegal = is_illegal_move(state, move);
         state = saved_state;
-    }
-    for(int i : illegal) {
-        legal_moves.erase(legal_moves.begin() + i);
+        
+        if(is_illegal) {
+            it = legal_moves.erase(it);
+        } else {
+            ++it;
+        }
     }
     return legal_moves.size();
 }
- 
+
+MoveCounter operator+(const MoveCounter& lhs, const MoveCounter& rhs) {
+    return {
+        lhs.move_count + rhs.move_count,
+        lhs.capture_count + rhs.capture_count,
+        lhs.en_passant_count + rhs.en_passant_count,
+        lhs.castle_count + rhs.castle_count,
+        lhs.promotion_count + rhs.promotion_count,
+        lhs.check_count + rhs.check_count
+    };
+}
+
+MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
+    if (depth == 0) {
+        MoveCounter check;
+        if(is_king_in_check(state, Color(state.side_to_move))) {
+            check = {0, 0, 0, 0, 0, 1};
+        }
+        switch (node.move.type) {
+            case CAPTURE:
+                return MoveCounter({1, 1}) + check;
+            case ENPASSANT:
+                return MoveCounter({1, 1, 1}) + check;
+            case CASTLE:
+                return MoveCounter({1, 0, 0, 1}) + check;
+            case PROMOTION:
+                return MoveCounter({1, 0, 0, 0, 1}) + check;
+            case CAPTURE_AND_PROMOTION:
+                return MoveCounter({1, 1, 0, 0, 1}) + check;
+            default:
+                return MoveCounter({1}) + check;
+        }
+    }
+
+    vector<Move> legal_moves = get_all_pseudo_legal_moves(state);
+    U64 legal_move_count = prune_illegal_moves(state, legal_moves);
+
+    MoveCounter move_counter;
+
+    for(const Move& move : legal_moves) {
+        
+        GameState saved_state = state;
+        make_move(state, move);
+        node.children.emplace_back(GameNode{state, move});
+        GameNode& child = node.children.back();
+        MoveCounter child_move_count = build_move_tree(state, depth - 1, child);
+        child.move_counter = child_move_count;
+        move_counter = move_counter + child_move_count;
+        state = saved_state;
+    }
+    return move_counter;
+}

@@ -3,22 +3,26 @@
 
 #include <iostream>
 #include <vector>
+#include <list>
 #include <string>
 #include <cstdint>
 #include <sstream>
+#include <algorithm>
 
 #define U64 uint64_t
 
 using std::string;
 using std::vector;
+using std::list;
 using std::cout;
 using std::endl;
 using std::istringstream;
 using std::invalid_argument;
+using std::remove_if;
 
 extern U64 piece_vision[7][64];
 extern U64 piece_bnb[7][64];
-extern U64 behind[64][64];
+extern U64 not_behind[64][64];
 
 enum Color {
     WHITE = 1, BLACK = -1, NONE = 0
@@ -43,12 +47,12 @@ enum MoveType {
 static PieceType legal_promotions[4] = {ROOK, KNIGHT, BISHOP, QUEEN};
 
 void generate_piece_vision_maps();
-void generate_behind();
+void generate_not_behind();
 
 struct Init {
     Init() {
         generate_piece_vision_maps();
-        generate_behind();
+        generate_not_behind();
     }
 };
 
@@ -85,6 +89,21 @@ struct GameState {
     int fullmove_number;
 };
 
+struct MoveCounter {
+    U64 move_count = 0;
+    U64 capture_count = 0;
+    U64 en_passant_count = 0;
+    U64 castle_count = 0;
+    U64 promotion_count = 0;
+    U64 check_count = 0;
+};
+
+struct GameNode {
+    GameState state;
+    Move move = {-1, -1, EMPTY, EMPTY, EMPTY, QUIET};
+    vector<GameNode> children;
+    MoveCounter move_counter;
+};
 
 int bit_scan_forward(U64 bb);
 U64 squares_behind(int p1, int p2);
@@ -117,9 +136,11 @@ void move_piece(GameState& state, int pi, int from, int to);
 int prune_illegal_moves(GameState& state, vector<Move>& legal_moves);
 bool is_illegal_move(GameState& state, Move& last_move);
 U64 get_enemy_attack_vision(GameState& state, Color color);
+MoveCounter build_move_tree(GameState& state, int depth, GameNode& node);
 
 std::ostream& operator<<(std::ostream& os, const GameState& state);
 std::ostream& operator<<(std::ostream& os, const Move& move);
+std::ostream& operator<<(std::ostream& os, const MoveCounter& counter);
 
 static U64 FILE_A = 0x0101010101010101ULL;
 static U64 FILE_B = 0x0202020202020202ULL;

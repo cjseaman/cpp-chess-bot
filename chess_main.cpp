@@ -14,21 +14,17 @@ int main() {
     string castle_and_pawn_mess = "4k3/1P4P1/8/3Pp3/3P4/N1Q4P/P1P5/R3K2R w K e6 0 1";
     string position_1 = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
     string position_5 = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
-    string target_fen = "8/8/4q3/1k2B3/4K3/8/8/8 w - - 0 1";
+    string target_fen = "4k3/8/2q5/3Pp3/8/8/8/7K w - e6 0 1";
 
-    GameState state = parse_full_fen(target_fen);
+    GameState state = parse_full_fen(starting_fen);
     cout << state;
-    vector<Move> moves = get_all_pseudo_legal_moves(state);
-
-    cout << moves.size() << " pseudo legal moves found:\n";
-
-    int legal_count = prune_illegal_moves(state, moves);
-
-    cout << legal_count << " legal moves found:\n";
-
-    for(Move move : moves) {
-        cout << move << '\n';
+    cout << "\n" << "Perft Testing:\n";
+    GameNode head = {state};
+    int depth = 4;
+    for(int i = depth; i > 0; i--) {
+        cout << "Perft(" << i << ") Nodes: " << build_move_tree(state, i, head) << "\n";
     }
 
     cout << endl;
+    return 1;
 }
