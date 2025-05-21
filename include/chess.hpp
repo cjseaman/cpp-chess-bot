@@ -44,6 +44,13 @@ enum MoveType {
     PUSH, DOUBLE_PUSH, ENPASSANT, CAPTURE, QUIET, CASTLE, PROMOTION, CAPTURE_AND_PROMOTION
 };
 
+enum CastlingRights {
+    WHITE_KINGSIDE  = 1 << 0, // 0001
+    WHITE_QUEENSIDE = 1 << 1, // 0010
+    BLACK_KINGSIDE  = 1 << 2, // 0100
+    BLACK_QUEENSIDE = 1 << 3  // 1000
+};
+
 static PieceType legal_promotions[4] = {ROOK, KNIGHT, BISHOP, QUEEN};
 
 void generate_piece_vision_maps();
@@ -65,6 +72,12 @@ struct Move {
     MoveType type;
 };
 
+struct UnMakeInfo {
+    uint8_t castling_rights;
+    int en_passant_square;
+    int halfmove_clock;
+};
+
 struct Piece {
     PieceType type;
     int square_number;
@@ -80,10 +93,7 @@ struct GameState {
     vector<Piece> pieces;
     Occupancy occupancy;
     Color side_to_move;
-    bool white_can_castle_kingside;
-    bool white_can_castle_queenside;
-    bool black_can_castle_kingside;
-    bool black_can_castle_queenside;
+    uint8_t castle_rights;
     int en_passant_square;  // -1 if none
     int halfmove_clock;
     int fullmove_number;
@@ -96,6 +106,7 @@ struct MoveCounter {
     U64 castle_count = 0;
     U64 promotion_count = 0;
     U64 check_count = 0;
+    U64 checkmate_count = 0;
 };
 
 struct GameNode {
@@ -132,7 +143,7 @@ vector<Move> get_all_pseudo_legal_moves(GameState& state);
 Occupancy get_occupancy(vector<Piece>& pieces);
 int algebraic_to_square(const string& alg);
 void make_move(GameState& state, Move& move);
-void move_piece(GameState& state, int pi, int from, int to);
+void handle_move(GameState& state, int pi, int from, int to);
 int prune_illegal_moves(GameState& state, vector<Move>& legal_moves);
 bool is_illegal_move(GameState& state, Move& last_move);
 U64 get_enemy_attack_vision(GameState& state, Color color);
