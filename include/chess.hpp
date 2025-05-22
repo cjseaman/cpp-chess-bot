@@ -28,6 +28,11 @@ enum Color {
     WHITE = 1, BLACK = -1, NONE = 0
 };
 
+enum CASTLE_SQUARES {
+    ROOK_WK = 7, ROOK_WQ = 0, ROOK_BK = 63, ROOK_BQ = 56,
+    CASTLE_WK = 5, CASTLE_WQ = 3, CASTLE_BK = 61, CASTLE_BQ = 59
+};
+
 enum ColorOccupancyIndexes {
     B_OCC, E_OCC, W_OCC
 };
@@ -148,6 +153,7 @@ int prune_illegal_moves(GameState& state, vector<Move>& legal_moves);
 bool is_illegal_move(GameState& state, Move& last_move);
 U64 get_enemy_attack_vision(GameState& state, Color color);
 MoveCounter build_move_tree(GameState& state, int depth, GameNode& node);
+bool is_king_in_check(GameState& state, Color color, int king_square = -1, U64 enemy_attack_vision = 0xFFFFFFFFFFFFFFFFULL);
 
 std::ostream& operator<<(std::ostream& os, const GameState& state);
 std::ostream& operator<<(std::ostream& os, const Move& move);

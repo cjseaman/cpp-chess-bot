@@ -602,23 +602,23 @@ vector<Move> get_castle_moves(GameState& state, Occupancy& occupancy, Piece& pie
     vector<Move> rook_moves;
     // Castling
     if(state.side_to_move == WHITE) {
-        bool can_castle_kingside = (state.castle_rights & WHITE_KINGSIDE) && ((state.occupancy.colors[E_OCC] & WK_GAP) == WK_GAP) && piece.square_number == 7;
-        bool can_castle_queenside = (state.castle_rights & WHITE_QUEENSIDE) && ((state.occupancy.colors[E_OCC] & WQ_GAP) == WQ_GAP) && piece.square_number == 0;
+        bool can_castle_kingside = (state.castle_rights & WHITE_KINGSIDE) && ((state.occupancy.colors[E_OCC] & WK_GAP) == WK_GAP) && piece.square_number == ROOK_WK;
+        bool can_castle_queenside = (state.castle_rights & WHITE_QUEENSIDE) && ((state.occupancy.colors[E_OCC] & WQ_GAP) == WQ_GAP) && piece.square_number == ROOK_WQ;
         if(can_castle_kingside) {
-            rook_moves.push_back({piece.square_number, 5, piece.type, EMPTY, EMPTY, CASTLE});
+            rook_moves.push_back({piece.square_number, CASTLE_WK, piece.type, EMPTY, EMPTY, CASTLE});
         } 
         if(can_castle_queenside) {
-            rook_moves.push_back({piece.square_number, 3, piece.type, EMPTY, EMPTY, CASTLE});
+            rook_moves.push_back({piece.square_number, CASTLE_WQ, piece.type, EMPTY, EMPTY, CASTLE});
         }
     }
     if(state.side_to_move == BLACK) {
         bool can_castle_kingside = (state.castle_rights & BLACK_KINGSIDE) && ((state.occupancy.colors[E_OCC] & BK_GAP) == BK_GAP) && piece.square_number == 63;
         bool can_castle_queenside = (state.castle_rights & BLACK_QUEENSIDE) && ((state.occupancy.colors[E_OCC] & BQ_GAP) == BQ_GAP) && piece.square_number == 56;
         if(can_castle_kingside) {
-            rook_moves.push_back({piece.square_number, 5, piece.type, EMPTY, EMPTY, CASTLE});
+            rook_moves.push_back({piece.square_number, CASTLE_BK, piece.type, EMPTY, EMPTY, CASTLE});
         } 
         if(can_castle_queenside) {
-            rook_moves.push_back({piece.square_number, 3, piece.type, EMPTY, EMPTY, CASTLE});
+            rook_moves.push_back({piece.square_number, CASTLE_BQ, piece.type, EMPTY, EMPTY, CASTLE});
         }
     }
     
@@ -690,19 +690,19 @@ void handle_move(GameState& state, int pi, int from, int to) {
     state.en_passant_square = -1;
     if(state.pieces[pi].type == ROOK) {
         // Short, white
-        if(from == 7) {
+        if(from == ROOK_WK) {
             state.castle_rights = state.castle_rights & ~(WHITE_KINGSIDE);
         }
         // Long, white
-        else if(from == 0) {
+        else if(from == ROOK_WQ) {
             state.castle_rights = state.castle_rights & ~(WHITE_QUEENSIDE);
         }
         // Short, black
-        else if(from == 63) {
+        else if(from == ROOK_BK) {
             state.castle_rights = state.castle_rights & ~(BLACK_KINGSIDE);
         }
         // Long, black
-        else if(from == 56) {
+        else if(from == ROOK_BQ) {
             state.castle_rights = state.castle_rights & ~(BLACK_QUEENSIDE);
         }
     }
@@ -835,6 +835,7 @@ void make_move(GameState& state, const Move& move) {
             return;
         }
         case CASTLE: {
+            state.castle_rights = state.castle_rights & ~(WHITE_KINGSIDE | WHITE_QUEENSIDE);
             handle_move(state, mpi, move.from, move.to);
             int king_start = state.pieces[ki].square_number;
             int king_end;
@@ -879,7 +880,7 @@ U64 get_enemy_attack_vision(GameState& state, Color color) {
     return enemy_attack_vision;
 }
 
-bool is_king_in_check(GameState& state, Color color, int king_square = -1, U64 enemy_attack_vision = 0xFFFFFFFFFFFFFFFFULL) {
+bool is_king_in_check(GameState& state, Color color, int king_square, U64 enemy_attack_vision) {
     if(enemy_attack_vision == 0xFFFFFFFFFFFFFFFFULL) {
         enemy_attack_vision = get_enemy_attack_vision(state, color);
         for(Piece& piece : state.pieces) {
@@ -910,21 +911,14 @@ bool is_illegal_move(GameState& state, const Move& last_move) {
     bool illegal_move = is_king_in_check(state, color, king_square, enemy_attack_vision);
 
     if(last_move.type == CASTLE && !illegal_move) {
-        // Long white
-        if(last_move.from == 0) {
-            illegal_move = enemy_attack_vision & (WQ_GAP | (1ULL << 4));
+        if(last_move.to == CASTLE_BK || last_move.to == CASTLE_WK) {
+            illegal_move = is_king_in_check(state, color, king_square - 1, enemy_attack_vision);
+        } else {
+            illegal_move = is_king_in_check(state, color, king_square + 1, enemy_attack_vision);
         }
-        // Short white
-        if(last_move.from == 7) {
-            illegal_move = enemy_attack_vision & (WK_GAP | (1ULL << 4));
-        }
-        // Long black
-        if(last_move.from == 56) {
-            illegal_move = enemy_attack_vision & (BQ_GAP | (1ULL << 60));
-        }
-        // Short black
-        if(last_move.from == 63) {
-            illegal_move = enemy_attack_vision & (BK_GAP | (1ULL << 60));
+        if(illegal_move) {
+            //cout << '\n' << state;
+            return illegal_move;
         }
     }
     return illegal_move;
@@ -932,6 +926,7 @@ bool is_illegal_move(GameState& state, const Move& last_move) {
 
 int prune_illegal_moves(GameState& state, vector<Move>& legal_moves) {
     GameState saved_state = state;
+    // cout << '\n' << "Pruning\n" << state;
     int i = 0;
     for (auto it = legal_moves.begin(); it != legal_moves.end();) {
         const Move& move = *it;
@@ -963,9 +958,13 @@ MoveCounter operator+(const MoveCounter& lhs, const MoveCounter& rhs) {
 MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
     U64 legal_move_count;
     vector<Move> legal_moves;
+    MoveCounter move_counter;
+    GameState saved_state = state;
+    MoveCounter check;
+    bool king_is_in_check;
+
     if (depth == 0) {
-        MoveCounter check;
-        bool king_is_in_check = is_king_in_check(state, Color(state.side_to_move));
+        king_is_in_check = is_king_in_check(state, Color(state.side_to_move));
         if(king_is_in_check) {
             legal_moves = get_all_pseudo_legal_moves(state);
             legal_move_count = prune_illegal_moves(state, legal_moves);
@@ -994,11 +993,7 @@ MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
     legal_moves = get_all_pseudo_legal_moves(state);
     legal_move_count = prune_illegal_moves(state, legal_moves);
 
-    MoveCounter move_counter;
-
     for(const Move& move : legal_moves) {
-        
-        GameState saved_state = state;
         make_move(state, move);
         node.children.emplace_back(GameNode{state, move});
         GameNode& child = node.children.back();
@@ -1007,5 +1002,6 @@ MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
         move_counter = move_counter + child_move_count;
         state = saved_state;
     }
+    state = saved_state;
     return move_counter;
 }
