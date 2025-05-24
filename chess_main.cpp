@@ -20,11 +20,13 @@ int main() {
     string target_fen = "4k3/8/2q5/3Pp3/8/8/8/7K w - e6 0 1";
     string ep_discovered_check = "8/8/8/8/R3pP1k/8/8/3K4 b - f3 0 1";
     string king_opposition = "8/3k4/8/3K4/8/8/8/8 b - - 0 1";
+    string castling_test_2 = "8/8/8/8/1b6/8/8/R3K2R w KQ - 0 1";
+    string knight_check_test = "2N5/2N3NN/8/4k3/8/1NN3N1/8/8 b - - 0 1";
 
 
     string checkmate = "4k3/8/8/8/8/8/r2q4/3K4 w - - 0 1";
 
-    GameState state = parse_full_fen(position_2);
+    GameState state = parse_full_fen(position_4);
     cout << state;
 
 
@@ -38,7 +40,7 @@ int main() {
 
     cout << "\n" << "Perft Testing:\n";
     GameNode head = {state};
-    int depth = 4;
+    int depth = 5;
     for(int i = 0; i <= depth; i++) {
         cout << "Perft(" << i << ") Nodes: " << build_move_tree(state, i, head) << "\n";
     }

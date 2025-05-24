@@ -30,7 +30,8 @@ enum Color {
 
 enum CASTLE_SQUARES {
     ROOK_WK = 7, ROOK_WQ = 0, ROOK_BK = 63, ROOK_BQ = 56,
-    CASTLE_WK = 5, CASTLE_WQ = 3, CASTLE_BK = 61, CASTLE_BQ = 59
+    CASTLE_WK = 5, CASTLE_WQ = 3, CASTLE_BK = 61, CASTLE_BQ = 59,
+    WHITE_KING_SQ = 4, BLACK_KING_SQ = 60, WK_SHORT_SQ = 6, WK_LONG_SQ = 2, BK_SHORT_SQ = 62, BK_LONG_SQ = 58
 };
 
 enum ColorOccupancyIndexes {

@@ -444,7 +444,7 @@ std::ostream& operator<<(std::ostream& os, const Move& move) {
     string promotion_message = " to ";
     promotion_message += piece_type_to_string(move.promotion);
     promotion_message += " | ";
-    os << piece_type_to_string(move.piece) << " from " << square_to_algebraic(move.from) << " to " << square_to_algebraic(move.to) << '\n';
+    os << '\n' << piece_type_to_string(move.piece) << " from " << square_to_algebraic(move.from) << " to " << square_to_algebraic(move.to) << '\n';
     os << "Move type: " << move_type_to_string(move.type) << (move.type == PROMOTION? promotion_message : " | ") << "Capturing " << piece_type_to_string(move.captured) << '\n';
     return os;
 }
@@ -454,13 +454,14 @@ std::ostream& operator<<(std::ostream& os, const GameState& state) {
     for (Piece piece : state.pieces) {
         board[piece.square_number] = piece_to_char(piece);
     }
+    os << '\n';
     for (int row = 7; row >= 0; --row) {
-        cout << row + 1 << "   ";
+        os << row + 1 << "   ";
         for (int col = 0; col < 8; ++col) {
             int i = row * 8 + col;
             os << (board[i] == 0 ? '.' : board[i]) << ' ';
         }
-        cout << '\n';
+        os << '\n';
     }
 
     os << "\n    a b c d e f g h\n";
@@ -612,8 +613,8 @@ vector<Move> get_castle_moves(GameState& state, Occupancy& occupancy, Piece& pie
         }
     }
     if(state.side_to_move == BLACK) {
-        bool can_castle_kingside = (state.castle_rights & BLACK_KINGSIDE) && ((state.occupancy.colors[E_OCC] & BK_GAP) == BK_GAP) && piece.square_number == 63;
-        bool can_castle_queenside = (state.castle_rights & BLACK_QUEENSIDE) && ((state.occupancy.colors[E_OCC] & BQ_GAP) == BQ_GAP) && piece.square_number == 56;
+        bool can_castle_kingside = (state.castle_rights & BLACK_KINGSIDE) && ((state.occupancy.colors[E_OCC] & BK_GAP) == BK_GAP) && piece.square_number == ROOK_BK;
+        bool can_castle_queenside = (state.castle_rights & BLACK_QUEENSIDE) && ((state.occupancy.colors[E_OCC] & BQ_GAP) == BQ_GAP) && piece.square_number == ROOK_BQ;
         if(can_castle_kingside) {
             rook_moves.push_back({piece.square_number, CASTLE_BK, piece.type, EMPTY, EMPTY, CASTLE});
         } 
@@ -638,7 +639,7 @@ vector<Move> get_all_pseudo_legal_moves(GameState& state) {
             legal_moves.insert(legal_moves.end(), pawn_moves.begin(), pawn_moves.end());
         }
 
-        if(piece.type == ROOK) {
+        if(piece.type == ROOK && state.castle_rights) {
             vector<Move> castle_moves = get_castle_moves(state, state.occupancy, piece);
             legal_moves.reserve(castle_moves.size());
             legal_moves.insert(legal_moves.end(), castle_moves.begin(), castle_moves.end());
@@ -668,6 +669,9 @@ vector<Move> get_all_pseudo_legal_moves(GameState& state) {
 }
 
 void move_piece(GameState& state, int pi, int from, int to) {
+    if(pi == -1) {
+        cout << '\n'<< state;
+    }
     state.pieces[pi].square_number = to;
     U64& color_occupancy = state.occupancy.colors[state.pieces[pi].color + 1];
     color_occupancy = color_occupancy & ~(1ULL << from);
@@ -736,13 +740,14 @@ void unmake_move(GameState& state, const Move& move, UnMakeInfo info) {
     int cpi = -1;
     int ki = -1;
     int piece_index = 0;
-    Color color = state.side_to_move; // Opposite color for replacing captured pieces NOT SIDE TO MOVE
+    Color just_moved = Color(-state.side_to_move); // Opposite color for replacing captured pieces NOT SIDE TO MOVE
+    Color opp_of_just_moved = state.side_to_move;
 
     for(Piece& piece : state.pieces) {
-        if(piece.square_number == move.from) {
+        if(piece.square_number == move.to) {
             mpi = piece_index;
         } 
-        if(piece.type == KING && piece.color == state.side_to_move) {
+        if(piece.type == KING && piece.color == just_moved) {
             ki = piece_index;
         }
         if(mpi > -1 && (ki > -1 || !(move.type == CASTLE))){
@@ -755,7 +760,8 @@ void unmake_move(GameState& state, const Move& move, UnMakeInfo info) {
         case CAPTURE_AND_PROMOTION: {
             handle_unmove(state, mpi, move.to, move.from, info);
             state.pieces[mpi].type = PAWN;
-            state.pieces.push_back({move.captured, move.to, color});
+            state.pieces.push_back({move.captured, move.to, opp_of_just_moved});
+            set_occupancy(state, move.to, opp_of_just_moved);
             return;
         }
         case PROMOTION: {
@@ -765,23 +771,35 @@ void unmake_move(GameState& state, const Move& move, UnMakeInfo info) {
         }
         case ENPASSANT: {
             handle_unmove(state, mpi, move.to, move.from, info);
-            state.pieces.push_back({PAWN, (move.to + 8 * color), color});
+            state.pieces.push_back({PAWN, (move.to + 8 * opp_of_just_moved), opp_of_just_moved});
             // Add back occupancy for captured pawn
-            set_occupancy(state, (move.to + 8 * color), color);
-            state.en_passant_square = move.to;
+            set_occupancy(state, (move.to + 8 * opp_of_just_moved), opp_of_just_moved);
             return;
         }
         case CAPTURE: {
             handle_unmove(state, mpi, move.to, move.from, info);
-            state.pieces.push_back({move.captured, move.to, color});
+            state.pieces.push_back({move.captured, move.to, opp_of_just_moved});
+            set_occupancy(state, move.to, opp_of_just_moved);
             return;
         }
         case CASTLE: {
             handle_unmove(state, mpi, move.to, move.from, info);
-            state.pieces[ki].square_number = state.pieces[ki].color == WHITE? 4 : 60;
+            remove_occupancy(state, state.pieces[ki].square_number, state.pieces[ki].color);
+            if(state.pieces[ki].color == WHITE) {
+                state.pieces[ki].square_number = WHITE_KING_SQ;
+                set_occupancy(state, WHITE_KING_SQ, WHITE);
+            } else {
+                state.pieces[ki].square_number = BLACK_KING_SQ;
+                set_occupancy(state, BLACK_KING_SQ, BLACK);
+            }
             return;
         }
         case DOUBLE_PUSH: {
+            handle_unmove(state, mpi, move.to, move.from, info);
+            return;
+        }
+        // Push, Quiet
+        default: {
             handle_unmove(state, mpi, move.to, move.from, info);
             return;
         }
@@ -809,11 +827,15 @@ void make_move(GameState& state, const Move& move) {
         } 
         piece_index ++;
     }
-
+    if(move.type == CAPTURE && move.captured == KING) {
+        cout << move;
+        cout << state;
+    }
     switch (move.type) {
         case CAPTURE_AND_PROMOTION: {
             handle_move(state, mpi, move.from, move.to);
             state.pieces[mpi].type = move.promotion;
+            remove_occupancy(state, state.pieces[cpi].square_number, state.pieces[cpi].color);
             state.pieces.erase(state.pieces.begin() + cpi);
             return;
         }
@@ -825,35 +847,40 @@ void make_move(GameState& state, const Move& move) {
         case ENPASSANT: {
             handle_move(state, mpi, move.from, move.to);
             // Remove occupancy for captured pawn
-            remove_occupancy(state, move.to + 8 * state.pieces[cpi].color, state.pieces[cpi].color);
+            remove_occupancy(state, state.pieces[cpi].square_number, state.pieces[cpi].color);
             state.pieces.erase(state.pieces.begin() + cpi);
             return;
         }
         case CAPTURE: {
             handle_move(state, mpi, move.from, move.to);
+            remove_occupancy(state, state.pieces[cpi].square_number, state.pieces[cpi].color);
             state.pieces.erase(state.pieces.begin() + cpi);
             return;
         }
         case CASTLE: {
-            state.castle_rights = state.castle_rights & ~(WHITE_KINGSIDE | WHITE_QUEENSIDE);
+            if(state.side_to_move == WHITE) {
+                state.castle_rights = state.castle_rights & ~(WHITE_KINGSIDE | WHITE_QUEENSIDE);
+            } else {
+                state.castle_rights = state.castle_rights & ~(BLACK_KINGSIDE | BLACK_QUEENSIDE);
+            }
             handle_move(state, mpi, move.from, move.to);
             int king_start = state.pieces[ki].square_number;
             int king_end;
             // Short, white
             if(move.to == 5) {
-                king_end = 6;
+                king_end = WK_SHORT_SQ;
             }
             // Long, white
             else if(move.to == 3) {
-                king_end = 2;
+                king_end = WK_LONG_SQ;
             }
             // Short, black
             else if(move.to == 61) {
-                king_end = 62;
+                king_end = BK_SHORT_SQ;
             }
             // Long, black
             else if(move.to == 59) {
-                king_end = 58;
+                king_end = BK_LONG_SQ;
             }
             move_piece(state, ki, king_start, king_end);
             return;
@@ -911,11 +938,22 @@ bool is_illegal_move(GameState& state, const Move& last_move) {
     bool illegal_move = is_king_in_check(state, color, king_square, enemy_attack_vision);
 
     if(last_move.type == CASTLE && !illegal_move) {
+        // Check for castling out of check
+        if(last_move.to == CASTLE_WK || last_move.to == CASTLE_WQ) {
+            illegal_move = is_king_in_check(state, color, WHITE_KING_SQ, enemy_attack_vision);
+        } else {
+            illegal_move = is_king_in_check(state, color, BLACK_KING_SQ, enemy_attack_vision);
+        }
+        if(illegal_move) {
+            return illegal_move;
+        }
+        // Check for castling through check
         if(last_move.to == CASTLE_BK || last_move.to == CASTLE_WK) {
             illegal_move = is_king_in_check(state, color, king_square - 1, enemy_attack_vision);
         } else {
             illegal_move = is_king_in_check(state, color, king_square + 1, enemy_attack_vision);
         }
+        // Castling into check should be pruned automatically
         if(illegal_move) {
             //cout << '\n' << state;
             return illegal_move;
@@ -925,20 +963,24 @@ bool is_illegal_move(GameState& state, const Move& last_move) {
 }
 
 int prune_illegal_moves(GameState& state, vector<Move>& legal_moves) {
-    GameState saved_state = state;
+    UnMakeInfo info;
+    info.castling_rights = state.castle_rights;
+    info.en_passant_square = state.en_passant_square;
+    info.halfmove_clock = state.halfmove_clock;
     // cout << '\n' << "Pruning\n" << state;
     int i = 0;
+    bool is_illegal;
     for (auto it = legal_moves.begin(); it != legal_moves.end();) {
         const Move& move = *it;
         make_move(state, move);
-        bool is_illegal = is_illegal_move(state, move);
-        state = saved_state;
-        
+        is_illegal = is_illegal_move(state, move);
+        unmake_move(state, move, info);
         if(is_illegal) {
             it = legal_moves.erase(it);
         } else {
             ++it;
         }
+        i++;
     }
     return legal_moves.size();
 }
@@ -959,7 +1001,8 @@ MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
     U64 legal_move_count;
     vector<Move> legal_moves;
     MoveCounter move_counter;
-    GameState saved_state = state;
+    //GameState saved_state = state;
+    UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
     MoveCounter check;
     bool king_is_in_check;
 
@@ -971,7 +1014,7 @@ MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
             if(legal_move_count) {
                 check = {0, 0, 0, 0, 0, 1};
             } else {
-                check = {0, 0, 0, 0, 0, 0, 1};
+                check = {0, 0, 0, 0, 0, 1, 1};
             }
         }
         switch (node.move.type) {
@@ -1000,8 +1043,7 @@ MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
         MoveCounter child_move_count = build_move_tree(state, depth - 1, child);
         child.move_counter = child_move_count;
         move_counter = move_counter + child_move_count;
-        state = saved_state;
+        unmake_move(state, move, info);
     }
-    state = saved_state;
     return move_counter;
 }
