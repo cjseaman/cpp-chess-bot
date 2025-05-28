@@ -94,9 +94,7 @@ void generate_not_behind() {
 }
 
 void generate_piece_vision_maps() {
-    cout << "Generating piece vision..." << endl;
     for(int i = 0; i < 64; i++) {
-        cout << i << " ";
         U64 position = 1ULL << i;
 
         U64 rook_rays = draw_rook_rays(position);
@@ -117,7 +115,6 @@ void generate_piece_vision_maps() {
         piece_vision[BISHOP][i] = bishop_rays;
         piece_vision[QUEEN][i] = piece_vision[BISHOP][i] | piece_vision[ROOK][i];
     }
-    cout << "Generation finished." << endl;
 }
 
 U64 draw_king_vision(U64 start_position) {
@@ -514,6 +511,64 @@ PieceType get_piece_type_at_square(vector<Piece>& pieces, int square_number) {
     return EMPTY;
 }
 
+vector<Move> get_pawn_attacks(GameState& state, Piece& piece) {
+    vector<Move> attacks;
+    int attack_right = piece.square_number + 9 * piece.color;
+    int attack_left = piece.square_number + 7 * piece.color;
+    U64 opposing_occupancy = state.occupancy.colors[(-piece.color) + 1];
+    bool pawn_can_attack_right = (
+        // Not out of bounds
+        ((piece.color == WHITE && ((piece.square_number + 1) % 8) != 0) || (piece.color == BLACK && ((piece.square_number) % 8) != 0))
+        // And there is an opposing piece to capture
+        && (opposing_occupancy & (1ULL << attack_right) || attack_right == state.en_passant_square)
+    );
+
+    bool pawn_can_attack_left = (
+        ((piece.color == BLACK && ((piece.square_number + 1) % 8) != 0) || (piece.color == WHITE && ((piece.square_number) % 8) != 0))
+        && (opposing_occupancy & (1ULL << attack_left) || attack_left == state.en_passant_square)
+    );
+    if((piece.square_number > 47 && piece.color == WHITE) || (piece.square_number < 16 && piece.color == BLACK)) {
+        if(pawn_can_attack_left) {
+            for(PieceType piece_promotion : legal_promotions) {
+                PieceType captured_piece = get_piece_type_at_square(state.pieces, attack_left);
+                attacks.push_back({piece.square_number, attack_left, piece.type, captured_piece, piece_promotion, CAPTURE_AND_PROMOTION});
+            }
+        }
+        if(pawn_can_attack_right) {
+            for(PieceType piece_promotion : legal_promotions) {
+                PieceType captured_piece = get_piece_type_at_square(state.pieces, attack_right);
+                attacks.push_back({piece.square_number, attack_right, piece.type, captured_piece, piece_promotion, CAPTURE_AND_PROMOTION});
+            }
+        }
+        return attacks;
+    }
+     if(pawn_can_attack_right) {
+        PieceType attacked;
+        MoveType move_type;
+        if(state.en_passant_square == attack_right) {
+            attacked = PAWN;
+            move_type = ENPASSANT;
+        } else {
+            attacked = get_piece_type_at_square(state.pieces, attack_right);
+            move_type = CAPTURE;
+        }
+        attacks.push_back({piece.square_number, attack_right, piece.type, attacked, EMPTY, move_type});
+    }
+    if(pawn_can_attack_left) {
+        PieceType attacked;
+        MoveType move_type;
+        if(state.en_passant_square == attack_left) {
+            attacked = PAWN;
+            move_type = ENPASSANT;
+        } else {
+            attacked = get_piece_type_at_square(state.pieces, attack_left);
+            move_type = CAPTURE;
+        }
+        attacks.push_back({piece.square_number, attack_left, piece.type, attacked, EMPTY, move_type});
+    }
+    return attacks;
+}
+
 vector<Move> get_pawn_moves(GameState& state, Piece& piece) {
     vector<Move> pawn_moves;
     int one_ahead_pawn = piece.square_number + 8 * piece.color;
@@ -625,6 +680,29 @@ vector<Move> get_castle_moves(GameState& state, Occupancy& occupancy, Piece& pie
     
     return rook_moves;
 
+}
+
+vector<Move> get_all_pseudo_legal_captures(GameState& state) {
+    vector<Move> captures;
+    for(Piece& piece : state.pieces) {
+        if(piece.color != state.side_to_move) continue;
+
+        if(piece.type == PAWN) {
+            vector<Move> pawn_moves = get_pawn_attacks(state, piece);
+            captures.reserve(pawn_moves.size());
+            captures.insert(captures.end(), captures.begin(), captures.end());
+        }
+
+        U64 piece_vision_set = get_piece_attack_vision(piece.square_number, state.occupancy.all, piece.type);
+        U64 capture_move_set = piece_vision_set & state.occupancy.colors[-piece.color + 1];
+        while(capture_move_set) {
+            int move_to = count_zeros(capture_move_set);
+            PieceType captured = get_piece_type_at_square(state.pieces, move_to);
+            captures.push_back({piece.square_number, move_to, piece.type, captured, EMPTY, CAPTURE});
+            capture_move_set = capture_move_set & (capture_move_set - 1);
+        }
+    }
+    return captures;
 }
 
 vector<Move> get_all_pseudo_legal_moves(GameState& state) {
@@ -997,7 +1075,160 @@ MoveCounter operator+(const MoveCounter& lhs, const MoveCounter& rhs) {
     };
 }
 
-MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
+int operator==(const MoveCounter& lhs, const MoveCounter& rhs) {
+    return 
+        lhs.move_count == rhs.move_count &&
+        lhs.capture_count == rhs.capture_count &&
+        lhs.en_passant_count == rhs.en_passant_count &&
+        lhs.castle_count == rhs.castle_count &&
+        lhs.promotion_count == rhs.promotion_count &&
+        lhs.check_count == rhs.check_count &&
+        lhs.checkmate_count == rhs.checkmate_count;
+}
+
+
+float quiesce(GameState& state, float alpha, float beta) {
+    float static_eval = evaluate(state);
+
+    float best_val = static_eval;
+    if(best_val >= beta) {
+        return best_val;
+    }
+    if(best_val > alpha) {
+        alpha = best_val;
+    }
+
+    vector<Move> all_captures = get_all_pseudo_legal_captures(state);
+    prune_illegal_moves(state, all_captures);
+    UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
+
+    for(Move& capture : all_captures) {
+        make_move(state, capture);
+        float score = -quiesce(state, alpha, beta);
+        unmake_move(state, capture, info);
+        if(score >= beta) {
+            return score;
+        }
+        if(score > best_val) {
+            best_val = score;
+        }
+        if(score > alpha) {
+            alpha = score;
+        }
+        return best_val;
+    }
+    return best_val;
+}
+
+float alpha_beta(GameState& state, float alpha, float beta, int depth) {
+    if(depth == 0) {
+        return quiesce(state, alpha, beta);
+    }
+    float best_val = -FLT_MAX;
+    vector<Move> all_moves = get_all_legal_moves(state);
+    UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
+    for(Move move : all_moves) {
+        make_move(state, move);
+        float score = -alpha_beta(state, -beta, -alpha, depth - 1);
+        unmake_move(state, move, info);
+        if(score > best_val) {
+            best_val = score;
+            if(score > alpha) {
+                alpha = score;
+            }
+            if(score >= beta) {
+                return best_val;
+            }
+        }
+    }
+    return best_val;
+}
+
+MoveEval alpha_beta_search(GameState& state, int depth) {
+    UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
+    vector<Move> legal_moves = get_all_legal_moves(state);
+
+    float max_score = -FLT_MAX;
+    MoveEval selected;
+    for(const Move& move : legal_moves) {
+        make_move(state, move);
+        float score = -alpha_beta(state, -FLT_MAX, FLT_MAX, depth);
+        unmake_move(state, move, info);
+        if(score > max_score) {
+            max_score = score;
+            selected = {move, max_score};
+        }
+    }
+    return selected;
+}
+
+MoveEval negamax_search(GameState& state, int depth) {
+
+    UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
+    vector<Move> legal_moves = get_all_pseudo_legal_moves(state);
+    U64 legal_move_count = prune_illegal_moves(state, legal_moves);
+    
+    float max_score = -FLT_MAX;
+    MoveEval selected;
+    for(const Move& move : legal_moves) {
+        make_move(state, move);
+        float score = -negamax(state, depth);
+        unmake_move(state, move, info);
+        if(score > max_score) {
+            max_score = score;
+            selected = {move, max_score};
+        }
+    }
+    return selected;
+}
+
+vector<Move> get_all_legal_moves(GameState& state) {
+    vector<Move> legal_moves = get_all_pseudo_legal_moves(state);
+    prune_illegal_moves(state, legal_moves);
+    return legal_moves;
+}
+
+float negamax(GameState& state, int depth) {
+    UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
+    if(depth == 0) {
+        return evaluate(state);
+    }
+    float max = -FLT_MAX;
+    vector<Move> moves = get_all_legal_moves(state);
+    for (Move move : moves) {
+        make_move(state, move);
+        float score = -negamax(state, depth - 1);
+        unmake_move(state, move, info);
+        if(score > max) {
+            max = score;
+        }
+    }
+    return max;
+}
+
+float evaluate(GameState& state) {
+    vector<Move> legal_moves = get_all_pseudo_legal_moves(state);
+    U64 legal_move_count = prune_illegal_moves(state, legal_moves);
+    float evaluation = 0;
+    if(is_king_in_check(state, state.side_to_move) && legal_move_count == 0) {
+        // Checkmate is represented by FLT_MAX or -FLT_MAX, depending on the side
+        return FLT_MAX * -state.side_to_move;
+    } else if(legal_move_count == 0) {
+        // Draw
+        return 0;
+    }
+    for(Piece piece : state.pieces) {
+        if(piece.color == WHITE) {
+            evaluation -= PIECE_VALUES[piece.type];
+        }
+        if(piece.color == BLACK) {
+            evaluation += PIECE_VALUES[piece.type];
+        }
+    }
+    return evaluation;
+}
+
+MoveCounter build_perft_move_tree(GameState& state, int depth, GameNode& node) {
     U64 legal_move_count;
     vector<Move> legal_moves;
     MoveCounter move_counter;
@@ -1040,7 +1271,7 @@ MoveCounter build_move_tree(GameState& state, int depth, GameNode& node) {
         make_move(state, move);
         node.children.emplace_back(GameNode{state, move});
         GameNode& child = node.children.back();
-        MoveCounter child_move_count = build_move_tree(state, depth - 1, child);
+        MoveCounter child_move_count = build_perft_move_tree(state, depth - 1, child);
         child.move_counter = child_move_count;
         move_counter = move_counter + child_move_count;
         unmake_move(state, move, info);
