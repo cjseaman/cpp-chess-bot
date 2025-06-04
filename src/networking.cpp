@@ -35,7 +35,7 @@ void serve_best_move(string host, int port) {
         }
 
         best_move = alpha_beta_search(state, depth);
-        string content = square_to_algebraic(best_move.best_move.from) + square_to_algebraic(best_move.best_move.to) + " " + std::to_string(best_move.evaluation);
+        string content = square_to_algebraic(best_move.best_move.from) + "-" + square_to_algebraic(best_move.best_move.to) + " " + std::to_string(best_move.evaluation);
         res.set_content(content, "text/plain");
     });
 

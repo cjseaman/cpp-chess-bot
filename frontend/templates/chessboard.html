@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/chessboard-1.0.0.min.css') }}">
+  <title>Chess</title>
+</head>
+<body>
+    <h3 id="result_text"></h3>
+    <div id="chess_board" style="width: 500px;"></div>
+    <input type="text" id="fen_import">
+    <button type="button" id="submit_fen_import">Import FEN</button>
+    <button type="button" id="reset_game">Reset</button>
+    <select id="play_as">Play As:
+      <option value="white" selected>White</option>
+      <option value="black">Black</option>
+    </select>
+    <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chessboard-1.0.0.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chess-frontend.js') }}"></script>
+</body>
+</html>
