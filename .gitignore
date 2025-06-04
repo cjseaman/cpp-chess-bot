@@ -1,3 +1,7 @@
 *.exe
 *.exe
 chess_main.exe
+/build/.cmake
+/build/_deps
+/build
+/out

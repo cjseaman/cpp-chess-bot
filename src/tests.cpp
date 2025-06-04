@@ -65,5 +65,6 @@ void do_all_perft_tests(int depth) {
             }
         }
     }
-
 }
+
+

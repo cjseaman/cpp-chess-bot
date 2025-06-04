@@ -176,6 +176,7 @@ MoveEval negamax_search(GameState& state, int depth);
 float negamax(GameState& state, int depth);
 MoveEval alpha_beta_search(GameState& state, int depth);
 vector<Move> get_all_legal_moves(GameState& state);
+void serve_best_move(string host, int port);
 
 static U64 FILE_A = 0x0101010101010101ULL;
 static U64 FILE_B = 0x0202020202020202ULL;

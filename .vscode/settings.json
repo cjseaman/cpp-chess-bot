@@ -54,5 +54,6 @@
         "chrono": "cpp",
         "ratio": "cpp",
         "iomanip": "cpp"
-    }
+    },
+    "makefile.makefilePath": "build"
 }
