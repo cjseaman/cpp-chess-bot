@@ -22,8 +22,20 @@ void serve_best_move(string host, int port) {
 
         MoveEval best_move;
         GameState state = parse_full_fen(fen_string);
+        vector<Move> moves = get_all_legal_moves(state);
+
+        if(is_king_in_check(state, state.side_to_move) && moves.size() == 0) {
+            int win = -state.side_to_move;
+            res.set_content("Checkmate " + std::to_string(win), "text/plain");
+            return;
+        }
+        if(moves.size() == 0) {
+            res.set_content("Stalemate 0", "text/plain");
+            return;
+        }
+
         best_move = alpha_beta_search(state, depth);
-        string content = square_to_algebraic(best_move.best_move.from) + square_to_algebraic(best_move.best_move.to);
+        string content = square_to_algebraic(best_move.best_move.from) + square_to_algebraic(best_move.best_move.to) + " " + std::to_string(best_move.evaluation);
         res.set_content(content, "text/plain");
     });
 
