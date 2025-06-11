@@ -174,9 +174,13 @@ void time_perft_test(string position, int depth);
 float evaluate(GameState& state);
 MoveEval negamax_search(GameState& state, int depth);
 float negamax(GameState& state, int depth);
-MoveEval alpha_beta_search(GameState& state, int depth);
+MoveEval alpha_beta_search(GameState& state, int depth, bool& stop);
 vector<Move> get_all_legal_moves(GameState& state);
 void serve_best_move(string host, int port);
+bool is_valid_token(string token);
+string move_to_verbose(Move& move);
+Move verbose_to_move(const string& verbose, vector<Piece>& pieces);
+
 
 static U64 FILE_A = 0x0101010101010101ULL;
 static U64 FILE_B = 0x0202020202020202ULL;

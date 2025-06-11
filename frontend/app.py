@@ -23,7 +23,7 @@ def best_move():
         depth = DEFAULT_DEPTH
     payload = {"fen": fen_string, "depth": depth}
 
-    response = requests.get(f"http://{CHESS_HOST}:{CHESS_PORT}", params=payload)
+    response = requests.get(f"http://{CHESS_HOST}:{CHESS_PORT}/best_move", params=payload)
     print("RESPONSE", response.url, response.content)
     move = response.text.split(" ")[0]
     balance = response.text.split(" ")[1]

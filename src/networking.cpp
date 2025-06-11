@@ -4,10 +4,12 @@
 void serve_best_move(string host, int port) {
     // HTTP
     httplib::Server svr;
+    
 
     svr.Get("/best_move", [](const httplib::Request& req, httplib::Response &res) {
         string fen_string = "";
         int depth = 0;
+        bool stop = false;
         if(req.has_param("fen")) {
             fen_string = req.get_param_value("fen");
         } else {
@@ -34,7 +36,7 @@ void serve_best_move(string host, int port) {
             return;
         }
 
-        best_move = alpha_beta_search(state, depth);
+        best_move = alpha_beta_search(state, depth, stop);
         string content = square_to_algebraic(best_move.best_move.from) + "-" + square_to_algebraic(best_move.best_move.to) + " " + std::to_string(best_move.evaluation);
         res.set_content(content, "text/plain");
     });

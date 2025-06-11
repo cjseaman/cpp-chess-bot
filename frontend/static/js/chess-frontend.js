@@ -1,4 +1,4 @@
-chess_board = Chessboard("chess_board", {position: "start", draggable: true, onchange: handle_move})
+chess_board = Chessboard("chess_board", {position: "start", draggable: true, onChange: handle_move})
 playing_as = "white"
 selected_depth = 3
 
@@ -18,6 +18,9 @@ $("#play_as").change(function() {
 })
 
 function handle_move(oldPosition, newPosition) {
+    console.log("Handling Move")
+    console.log(oldPosition)
+    console.log(newPosition)
     fen_string = Chessboard.objToFen(newPosition)
     console.log(fen_string)
     $.get("/best_move", {"fen": fen_string, "depth": selected_depth}, "json").done(function(data) {

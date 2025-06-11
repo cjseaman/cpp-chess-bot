@@ -294,6 +294,25 @@ char piece_to_char(Piece piece) {
     return piece_char;
 }
 
+PieceType char_to_piece_type(char piece_char) {
+    switch (tolower(piece_char)) {
+        case 'r':
+            return ROOK;
+        case 'n':
+            return KNIGHT;
+        case 'b':
+            return BISHOP;
+        case 'q':
+            return QUEEN;
+        case 'k':
+            return KING;
+        case 'p':
+            return PAWN;
+        default:
+            return EMPTY;
+    }
+}
+
 int algebraic_to_square(const string& alg) {
     if (alg == "-") return -1;
     return (alg[0] - 'a') + 8 * (alg[1] - '1');
@@ -1120,8 +1139,8 @@ float quiesce(GameState& state, float alpha, float beta) {
     return best_val;
 }
 
-float alpha_beta(GameState& state, float alpha, float beta, int depth) {
-    if(depth == 0) {
+float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& stop) {
+    if(depth == 0 || stop) {
         return quiesce(state, alpha, beta);
     }
     float best_val = -FLT_MAX;
@@ -1129,7 +1148,7 @@ float alpha_beta(GameState& state, float alpha, float beta, int depth) {
     UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
     for(Move move : all_moves) {
         make_move(state, move);
-        float score = -alpha_beta(state, -beta, -alpha, depth - 1);
+        float score = -alpha_beta(state, -beta, -alpha, depth - 1, stop);
         unmake_move(state, move, info);
         if(score > best_val) {
             best_val = score;
@@ -1144,7 +1163,7 @@ float alpha_beta(GameState& state, float alpha, float beta, int depth) {
     return best_val;
 }
 
-MoveEval alpha_beta_search(GameState& state, int depth) {
+MoveEval alpha_beta_search(GameState& state, int depth, bool& stop) {
     UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
     vector<Move> legal_moves = get_all_legal_moves(state);
 
@@ -1152,7 +1171,7 @@ MoveEval alpha_beta_search(GameState& state, int depth) {
     MoveEval selected;
     for(const Move& move : legal_moves) {
         make_move(state, move);
-        float score = -alpha_beta(state, -FLT_MAX, FLT_MAX, depth);
+        float score = -alpha_beta(state, -FLT_MAX, FLT_MAX, depth, stop);
         unmake_move(state, move, info);
         if(score > max_score) {
             max_score = score;
@@ -1277,4 +1296,113 @@ MoveCounter build_perft_move_tree(GameState& state, int depth, GameNode& node) {
         unmake_move(state, move, info);
     }
     return move_counter;
+}
+
+bool is_valid_token(string token) {
+    return (
+        token == "uci" ||
+        token == "debug" ||
+        token == "isready" ||
+        token == "setoption" ||
+        token == "register" ||
+        token == "ucinewgame" ||
+        token == "position" ||
+        token == "go" ||
+        token == "stop" ||
+        token == "ponderhit" ||
+        token == "quit"
+    );
+}
+
+Move verbose_to_move(const string& verbose, vector<Piece>& pieces) {
+    string from_algabraic = verbose.substr(0, 2);
+    string to_algabraic = verbose.substr(2, 4);
+    char promotion = '\0';
+
+    if(verbose.size() > 4) {
+        promotion = verbose[5];
+    }
+
+    int from_square = algebraic_to_square(from_algabraic);
+    int to_square = algebraic_to_square(to_algabraic);
+    PieceType moving = get_piece_type_at_square(pieces, from_square);
+    PieceType capturing = get_piece_type_at_square(pieces, to_square);
+    MoveType move_type = QUIET;
+    Move move;
+
+    if(moving == KING) {
+        if(from_square == WHITE_KING_SQ) {
+            if(to_square == WK_SHORT_SQ) {
+                return {ROOK_WK, CASTLE_WK, ROOK, EMPTY, EMPTY, CASTLE};
+            } 
+            if(to_square == WK_LONG_SQ) {
+                return {ROOK_WQ, CASTLE_WQ, ROOK, EMPTY, EMPTY, CASTLE};
+            }
+        }
+        if (from_square == BLACK_KING_SQ) {
+            if (to_square == BK_SHORT_SQ) {
+                return {ROOK_BK, CASTLE_BK, ROOK, EMPTY, EMPTY, CASTLE};
+            } 
+            if (to_square == BK_LONG_SQ) {
+                return {ROOK_BQ, CASTLE_BQ, ROOK, EMPTY, EMPTY, CASTLE};
+            }
+        }
+    }
+
+    // Check for PUSH, DOUBLE_PUSH, ENPASSANT, CAPTURE, QUIET, CASTLE, PROMOTION, CAPTURE_AND_PROMOTION
+    // Pawn capture, check for ep
+    if(moving == PAWN) {
+        if(((from_square - to_square) % 8) != 0) {
+            if(capturing == EMPTY) {
+                return {from_square, to_square, PAWN, PAWN, EMPTY, ENPASSANT};
+            }
+        } else {
+            if(abs(from_square - to_square) == 8) {
+                return {from_square, to_square, PAWN, EMPTY, EMPTY, PUSH};
+            }
+            if(abs(from_square - to_square) == 16) {
+                return {from_square, to_square, PAWN, EMPTY, EMPTY, DOUBLE_PUSH};
+            }
+        }
+    }
+    if(capturing != EMPTY && !promotion) {
+        return {from_square, to_square, moving, capturing, EMPTY, CAPTURE};
+    } else if (capturing != EMPTY && promotion) {
+        return {from_square, to_square, moving, capturing, char_to_piece_type(promotion), CAPTURE_AND_PROMOTION};
+    } else if (promotion) {
+        return {from_square, to_square, moving, EMPTY, char_to_piece_type(promotion), PROMOTION};
+    }
+
+    return {from_square, to_square, moving, EMPTY, EMPTY, QUIET};
+}
+
+string move_to_verbose(Move& move) {
+    string verbose = "";
+    if(move.type == CASTLE) {
+        if(move.from == ROOK_WK || move.from == ROOK_WQ) {
+            verbose += square_to_algebraic(WHITE_KING_SQ);
+            if(move.to == CASTLE_WK) {
+                verbose += square_to_algebraic(WK_SHORT_SQ);
+            }
+            if(move.to == CASTLE_WQ) {
+                verbose += square_to_algebraic(WK_LONG_SQ);
+            }
+        }
+        if(move.from == ROOK_BK || move.from == ROOK_BQ) {
+            verbose += square_to_algebraic(BLACK_KING_SQ);
+            if(move.to == CASTLE_BK) {
+                verbose += square_to_algebraic(BK_SHORT_SQ);
+            }
+            if(move.to == CASTLE_BQ) {
+                verbose += square_to_algebraic(BK_LONG_SQ);
+            }
+        }
+        return verbose;
+    }
+    verbose += square_to_algebraic(move.from);
+    verbose += square_to_algebraic(move.to);
+    if(move.type == PROMOTION || move.type == CAPTURE_AND_PROMOTION) {
+        verbose += piece_to_char({move.promotion, move.from, BLACK});
+    }
+    return verbose;
 }
