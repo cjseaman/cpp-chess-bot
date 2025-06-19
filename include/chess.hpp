@@ -9,6 +9,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 
 #define U64 uint64_t
 
@@ -20,6 +21,11 @@ using std::endl;
 using std::istringstream;
 using std::invalid_argument;
 using std::remove_if;
+using std::chrono::high_resolution_clock;
+using std::chrono::system_clock;
+using std::chrono::time_point;
+using std::chrono::duration_cast;
+using std::chrono::milliseconds;
 
 extern U64 piece_vision[7][64];
 extern U64 piece_bnb[7][64];
@@ -39,7 +45,32 @@ enum ColorOccupancyIndexes {
     B_OCC, E_OCC, W_OCC
 };
 
-static float PIECE_VALUES[7] = {0, 3.5, 1, 5, 3, 3, 9};
+// Engines seem to disregard the value of rooks entirely. Make sure this is correct?
+static float PIECE_VALUES[7] = {0, 3.5, 1, 5, 3, 3.5, 9};
+static float SPACE_WEIGHT_SCALAR = 0;
+static float CENTRALITY[64] = 
+{
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.0,
+    0.0, 0.1, 0.2, 0.2, 0.2, 0.2, 0.1, 0.0,
+    0.0, 0.1, 0.2, 0.3, 0.3, 0.2, 0.1, 0.0,
+    0.0, 0.1, 0.2, 0.3, 0.3, 0.2, 0.1, 0.0,
+    0.0, 0.1, 0.2, 0.2, 0.2, 0.2, 0.1, 0.0,
+    0.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0                          
+};
+
+static float DIAGONALITY[64] = 
+{
+    0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2,
+    0.1, 0.2, 0.2, 0.1, 0.1, 0.2, 0.2, 0.1,
+    0.0, 0.2, 0.3, 0.2, 0.2, 0.3, 0.2, 0.0,
+    0.0, 0.1, 0.2, 0.3, 0.3, 0.2, 0.1, 0.0,
+    0.0, 0.1, 0.2, 0.3, 0.3, 0.2, 0.1, 0.0,
+    0.0, 0.2, 0.3, 0.2, 0.2, 0.3, 0.2, 0.0,
+    0.1, 0.2, 0.2, 0.1, 0.1, 0.2, 0.2, 0.1,
+    0.2, 0.1, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2                          
+};
 
 enum PieceType {
     EMPTY, KING, PAWN, ROOK, KNIGHT, BISHOP, QUEEN
@@ -174,12 +205,13 @@ void time_perft_test(string position, int depth);
 float evaluate(GameState& state);
 MoveEval negamax_search(GameState& state, int depth);
 float negamax(GameState& state, int depth);
-MoveEval alpha_beta_search(GameState& state, int depth, bool& stop);
+MoveEval alpha_beta_search(GameState& state, int depth, bool& stop, int max_time_ms);
 vector<Move> get_all_legal_moves(GameState& state);
 void serve_best_move(string host, int port);
 bool is_valid_token(string token);
 string move_to_verbose(Move& move);
 Move verbose_to_move(const string& verbose, vector<Piece>& pieces);
+float calculate_piece_value(Piece& piece);
 
 
 static U64 FILE_A = 0x0101010101010101ULL;

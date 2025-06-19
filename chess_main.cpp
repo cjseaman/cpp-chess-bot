@@ -1,5 +1,4 @@
 #include "include/chess.hpp"
-#include <thread>
 
 int main(int argc, char** argv) {
     std::string line;
@@ -40,16 +39,20 @@ int main(int argc, char** argv) {
             string position = tokens[++i];
             if(position == "startpos") {
                 state = parse_full_fen(starting_fen);
-            } else {
+                i++;
+            } else if (position == "fen") {
+                position = "";
                 // Take full fen string
-                while(token != "moves" && i < tokens.size()) {
-                    i++;
+                while(tokens[++i] != "moves" && i < tokens.size()) {
                     token = tokens[i];
                     position += token;
-                    state = parse_full_fen(position);
+                    if (tokens[i + 1] != "moves" && i + 1 < tokens.size()) {
+                        position += " ";
+                    }
                 }
+                state = parse_full_fen(position);
             }
-            if(++i < tokens.size()) {
+            if(i < tokens.size()) {
                 token = tokens[i];
             }
             if(token == "moves") {
@@ -60,13 +63,25 @@ int main(int argc, char** argv) {
             }
         }
         else if (token == "go") {
-            int depth = 3;
-            if(tokens[++i] == "depth") {
+            cout << state;
+            int depth = 1000;
+            int max_time_ms = 2000;
+            i++;
+            if(tokens[i] == "depth") {
                 depth = stoi(tokens[++i]);
+                if (i < tokens.size()) {
+                    i++;
+                }
+            }
+            if(tokens[i] == "movetime") {
+                max_time_ms = stoi(tokens[++i]);
+                if (i < tokens.size()) {
+                    i++;
+                }
             }
             cout << "info depth " << depth << endl;
-            MoveEval best_move = alpha_beta_search(state, depth, stop_search);
-            cout << "info score " << best_move.evaluation << endl;
+            MoveEval best_move = alpha_beta_search(state, depth, stop_search, max_time_ms);
+            cout << "info score " << best_move.evaluation * state.side_to_move << endl;
             cout << "bestmove " << move_to_verbose(best_move.best_move) << endl;
         }
         else if (token == "stop") {

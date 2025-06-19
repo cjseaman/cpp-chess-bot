@@ -231,7 +231,6 @@ U64 get_piece_attack_vision(int p, U64 occupied, PieceType piece_type) {
             int sq = bit_scan_forward(b);
             U64 s_not_behind = not_behind[p][sq];
             vision = vision & not_behind[p][sq];
-            // Vision includes b?
         }
     }
     return vision;
@@ -1139,8 +1138,13 @@ float quiesce(GameState& state, float alpha, float beta) {
     return best_val;
 }
 
-float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& stop) {
-    if(depth == 0 || stop) {
+float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& stop, time_point<system_clock> search_start_time, int max_time_ms) {
+    time_point<system_clock> current_search_time = high_resolution_clock::now();
+    auto search_duration = duration_cast<milliseconds>(current_search_time - search_start_time);
+
+    int n_ms_searched = search_duration.count();
+
+    if(depth == 0 || stop || n_ms_searched > max_time_ms) {
         return quiesce(state, alpha, beta);
     }
     float best_val = -FLT_MAX;
@@ -1148,7 +1152,7 @@ float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& sto
     UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
     for(Move move : all_moves) {
         make_move(state, move);
-        float score = -alpha_beta(state, -beta, -alpha, depth - 1, stop);
+        float score = -alpha_beta(state, -beta, -alpha, depth - 1, stop, search_start_time, max_time_ms);
         unmake_move(state, move, info);
         if(score > best_val) {
             best_val = score;
@@ -1163,17 +1167,18 @@ float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& sto
     return best_val;
 }
 
-MoveEval alpha_beta_search(GameState& state, int depth, bool& stop) {
+MoveEval alpha_beta_search(GameState& state, int depth, bool& stop, int max_time_ms) {
     UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
     vector<Move> legal_moves = get_all_legal_moves(state);
 
     float max_score = -FLT_MAX;
     MoveEval selected;
+    time_point<system_clock> search_start_time = high_resolution_clock::now();
     for(const Move& move : legal_moves) {
         make_move(state, move);
-        float score = -alpha_beta(state, -FLT_MAX, FLT_MAX, depth, stop);
+        float score = -alpha_beta(state, -FLT_MAX, FLT_MAX, depth, stop, search_start_time, max_time_ms);
         unmake_move(state, move, info);
-        if(score > max_score) {
+        if(score >= max_score) {
             max_score = score;
             selected = {move, max_score};
         }
@@ -1226,25 +1231,56 @@ float negamax(GameState& state, int depth) {
 }
 
 float evaluate(GameState& state) {
+    // Positive - Side to move winning
+    // Negative - Side to move losing
     vector<Move> legal_moves = get_all_pseudo_legal_moves(state);
+    vector<Move> pseudo_legal_moves = legal_moves;
     U64 legal_move_count = prune_illegal_moves(state, legal_moves);
+
     float evaluation = 0;
     if(is_king_in_check(state, state.side_to_move) && legal_move_count == 0) {
-        // Checkmate is represented by FLT_MAX or -FLT_MAX, depending on the side
-        return FLT_MAX * -state.side_to_move;
+        // AVOID BEING IN CHECKMATE - ULTIMATE NEGATIVE VALUE
+        return -FLT_MAX;
     } else if(legal_move_count == 0) {
         // Draw
         return 0;
     }
+
     for(Piece piece : state.pieces) {
-        if(piece.color == WHITE) {
-            evaluation -= PIECE_VALUES[piece.type];
-        }
-        if(piece.color == BLACK) {
-            evaluation += PIECE_VALUES[piece.type];
-        }
+        // Count material
+        evaluation += calculate_piece_value(piece) * state.side_to_move;
     }
     return evaluation;
+}
+
+float calculate_piece_value(Piece& piece) {
+    float value = PIECE_VALUES[piece.type];
+    if(piece.type == KNIGHT || piece.type == PAWN) {
+        value += CENTRALITY[piece.square_number] * 0.2;
+    }
+    if(piece.type == BISHOP) {
+        value += DIAGONALITY[piece.square_number] * 0.2;
+    }
+    if(piece.type == QUEEN) {
+        value += CENTRALITY[piece.square_number] * 0.1 + DIAGONALITY[piece.square_number] * 0.1;
+    }
+    if(piece.type == KING) {
+        value -= CENTRALITY[piece.square_number];
+        // Bonus for being castled
+        if(
+            piece.color == BLACK && (
+                piece.square_number == BK_LONG_SQ ||
+                piece.square_number == BK_SHORT_SQ
+            ) || 
+            piece.color == WHITE && (
+                piece.square_number == WK_SHORT_SQ ||
+                piece.square_number == WK_LONG_SQ
+            )
+        ) {
+            value += 0.01;
+        }
+    }
+    return value * piece.color;
 }
 
 MoveCounter build_perft_move_tree(GameState& state, int depth, GameNode& node) {
@@ -1316,11 +1352,11 @@ bool is_valid_token(string token) {
 
 Move verbose_to_move(const string& verbose, vector<Piece>& pieces) {
     string from_algabraic = verbose.substr(0, 2);
-    string to_algabraic = verbose.substr(2, 4);
+    string to_algabraic = verbose.substr(2, 2);
     char promotion = '\0';
 
     if(verbose.size() > 4) {
-        promotion = verbose[5];
+        promotion = verbose[4];
     }
 
     int from_square = algebraic_to_square(from_algabraic);
@@ -1351,7 +1387,7 @@ Move verbose_to_move(const string& verbose, vector<Piece>& pieces) {
 
     // Check for PUSH, DOUBLE_PUSH, ENPASSANT, CAPTURE, QUIET, CASTLE, PROMOTION, CAPTURE_AND_PROMOTION
     // Pawn capture, check for ep
-    if(moving == PAWN) {
+    if(moving == PAWN && !promotion) {
         if(((from_square - to_square) % 8) != 0) {
             if(capturing == EMPTY) {
                 return {from_square, to_square, PAWN, PAWN, EMPTY, ENPASSANT};
