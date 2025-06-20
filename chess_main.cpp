@@ -4,7 +4,8 @@ int main(int argc, char** argv) {
     std::string line;
     GameState state;
     bool stop_search = false;
-   
+    MoveEval best_move;
+
     while (1) {
         std::getline(std::cin, line);
         std::stringstream ss(line);
@@ -63,9 +64,8 @@ int main(int argc, char** argv) {
             }
         }
         else if (token == "go") {
-            cout << state;
             int depth = 1000;
-            int max_time_ms = 2000;
+            int max_time_ms = 10 * 1000;
             i++;
             if(tokens[i] == "depth") {
                 depth = stoi(tokens[++i]);
@@ -80,7 +80,9 @@ int main(int argc, char** argv) {
                 }
             }
             cout << "info depth " << depth << endl;
-            MoveEval best_move = alpha_beta_search(state, depth, stop_search, max_time_ms);
+            best_move = ab_iterative_deepener(state, stop_search, max_time_ms);
+            stop_search = false;
+            cout << state;
             cout << "info score " << best_move.evaluation * state.side_to_move << endl;
             cout << "bestmove " << move_to_verbose(best_move.best_move) << endl;
         }

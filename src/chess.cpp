@@ -1138,13 +1138,9 @@ float quiesce(GameState& state, float alpha, float beta) {
     return best_val;
 }
 
-float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& stop, time_point<system_clock> search_start_time, int max_time_ms) {
-    time_point<system_clock> current_search_time = high_resolution_clock::now();
-    auto search_duration = duration_cast<milliseconds>(current_search_time - search_start_time);
-
-    int n_ms_searched = search_duration.count();
-
-    if(depth == 0 || stop || n_ms_searched > max_time_ms) {
+float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& stop) {
+    
+    if(depth == 0 || stop) {
         return quiesce(state, alpha, beta);
     }
     float best_val = -FLT_MAX;
@@ -1152,7 +1148,7 @@ float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& sto
     UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
     for(Move move : all_moves) {
         make_move(state, move);
-        float score = -alpha_beta(state, -beta, -alpha, depth - 1, stop, search_start_time, max_time_ms);
+        float score = -alpha_beta(state, -beta, -alpha, depth - 1, stop);
         unmake_move(state, move, info);
         if(score > best_val) {
             best_val = score;
@@ -1167,20 +1163,45 @@ float alpha_beta(GameState& state, float alpha, float beta, int depth, bool& sto
     return best_val;
 }
 
-MoveEval alpha_beta_search(GameState& state, int depth, bool& stop, int max_time_ms) {
+void stop_after_n_ms(bool& stop, int time_ms) {
+    std::this_thread::sleep_for(milliseconds(time_ms));
+    stop = true;
+}
+
+MoveEval ab_iterative_deepener(GameState& state, bool& stop, int max_time_ms) {
+    time_point<system_clock> search_start_time = high_resolution_clock::now();
+    MoveEval selected;
+    float max_score = -FLT_MAX;
+    int depth = 1;
+
+    std::thread SearchStopper(stop_after_n_ms, std::ref(stop), max_time_ms);
+
+    while(!stop) {
+        selected = alpha_beta_search(state, depth, stop);
+        depth += 1;
+    }
+    SearchStopper.join();
+
+    return selected;
+}
+
+MoveEval alpha_beta_search(GameState& state, int depth, bool& stop) {
     UnMakeInfo info = {state.castle_rights, state.en_passant_square, state.halfmove_clock};
     vector<Move> legal_moves = get_all_legal_moves(state);
 
     float max_score = -FLT_MAX;
     MoveEval selected;
-    time_point<system_clock> search_start_time = high_resolution_clock::now();
+    cout << "AB Search Depth:" << depth << endl;
     for(const Move& move : legal_moves) {
         make_move(state, move);
-        float score = -alpha_beta(state, -FLT_MAX, FLT_MAX, depth, stop, search_start_time, max_time_ms);
+        float score = -alpha_beta(state, -FLT_MAX, FLT_MAX, depth, stop);
         unmake_move(state, move, info);
         if(score >= max_score) {
             max_score = score;
             selected = {move, max_score};
+            if(max_score == FLT_MAX) {
+                return selected;
+            }
         }
     }
     return selected;
@@ -1248,38 +1269,30 @@ float evaluate(GameState& state) {
 
     for(Piece piece : state.pieces) {
         // Count material
-        evaluation += calculate_piece_value(piece) * state.side_to_move;
+        evaluation += calculate_piece_value(piece);
     }
-    return evaluation;
+    float low_material_bonus = (MATERIAL_COUNT / state.pieces.size());
+    evaluation *= low_material_bonus;
+    return evaluation * state.side_to_move;
 }
 
 float calculate_piece_value(Piece& piece) {
     float value = PIECE_VALUES[piece.type];
+/*
     if(piece.type == KNIGHT || piece.type == PAWN) {
-        value += CENTRALITY[piece.square_number] * 0.2;
+        value += CENTRALITY[piece.square_number] * 0.1;
     }
     if(piece.type == BISHOP) {
-        value += DIAGONALITY[piece.square_number] * 0.2;
+        value += DIAGONALITY[piece.square_number] * 0.1;
     }
     if(piece.type == QUEEN) {
-        value += CENTRALITY[piece.square_number] * 0.1 + DIAGONALITY[piece.square_number] * 0.1;
+        value += CENTRALITY[piece.square_number] * 0.05 + DIAGONALITY[piece.square_number] * 0.05;
     }
     if(piece.type == KING) {
-        value -= CENTRALITY[piece.square_number];
-        // Bonus for being castled
-        if(
-            piece.color == BLACK && (
-                piece.square_number == BK_LONG_SQ ||
-                piece.square_number == BK_SHORT_SQ
-            ) || 
-            piece.color == WHITE && (
-                piece.square_number == WK_SHORT_SQ ||
-                piece.square_number == WK_LONG_SQ
-            )
-        ) {
-            value += 0.01;
-        }
+        value -= CENTRALITY[piece.square_number] * 0.1;
+        value += KING_SAFETY[piece.square_number] * 0.1;
     }
+*/ 
     return value * piece.color;
 }
 
